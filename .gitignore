@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+pyMilne.cpp
+*.so
+build/
+dist/
+*.egg-info/
