@@ -357,6 +357,8 @@ namespace ml{
 	  
 	  
 	  
+	  // gcc does not vectorise this loop on its own: too many pointers into one buffer to check for aliasing
+#pragma omp simd
 	  for(int ww=l0; ww <= l1; ++ww){
 	    
 	    // --- Common terms --- //
@@ -468,6 +470,8 @@ namespace ml{
       int const off1 = 15*nWav;
       int const off2 = 15*nWav + 12*nWav;
       
+      // the 49 dK arrays and the profile derivatives are disjoint slices of buff: tell the compiler
+#pragma omp simd
       for(int ww=l0; ww <= l1; ++ww){
 
 	int const w0   = ww;
@@ -702,7 +706,10 @@ namespace ml{
 
 
     // --- Buffer for precomputed constants --- //
-    T* const __restrict__ GP = new T [nWav*8]();
+    // --- one buffer per thread, fully written below --- //
+    static thread_local std::vector<T> GPws;
+    if(GPws.size() < size_t(nWav*8)) GPws.resize(nWav*8);
+    T* const __restrict__ GP = GPws.data();
     
     T* const __restrict__ GP1= GP;
     T* const __restrict__ GP2 = &GP[nWav];
@@ -887,8 +894,7 @@ namespace ml{
     memset(dV_dazi,0,nWav*sizeof(T));
 
 
-    
-    delete [] GP;
+
   }
 
   
@@ -903,7 +909,7 @@ namespace ml{
 
     int const nWav = int(wav.size());
     std::memset(out, 0, 4*nWav*sizeof(T));
-    std::memset(RF,  0, 36*nWav*sizeof(T));
+    std::memset(&RF[29*nWav], 0, 3*nWav*sizeof(T));   // dQ,dU,dV/dS0: the only RF entries not written below
 
 
     // --- Copy to local scalars ---//
@@ -927,7 +933,12 @@ namespace ml{
     
     // --- Allocate memory buffer ---//
     
-    T* const __restrict__ buff = new T [nWav*15 + nWav*7*7 + 24*nWav]();
+    // --- one work buffer per thread; compute_K_der accumulates into it, so zero it --- //
+    static thread_local std::vector<T> ws;
+    size_t const nws = size_t(nWav)*(15 + 7*7 + 24);
+    if(ws.size() < nws) ws.resize(nws);
+    T* const __restrict__ buff = ws.data();
+    std::memset(buff, 0, nws*sizeof(T));
     
 
     
@@ -941,9 +952,6 @@ namespace ml{
     ml::compute_Stokes_RF<T>(nWav, buff, out, RF, S0, S1, mu);
 
     
-    // --- clean-up --- //
-
-    delete [] buff;
   }
 }
 

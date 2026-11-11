@@ -4,6 +4,7 @@ Author: J. de la Cruz Rodriguez (ISP-SU, 2023)
 """
 cimport numpy as np
 from numpy cimport ndarray as ar
+from numpy import empty as np_empty
 from numpy import zeros, abs, sqrt, arctan2, where, pi, float32, float64, ndarray
 from libcpp cimport bool
 from libcpp.vector cimport vector
@@ -76,6 +77,16 @@ cdef extern from "wrapper_tools.hpp" namespace "wr":
     cdef float invert_spatially_regularized_float "wr::invert_spatially_regularized<float>"(long nt, long ny, long nx, long  ndat, vector[Milne[float]] &ME,  float*  m, float* obs, float* syn, float*  sig, int method, int nIter, float chi2_thres, float  mu, float iLam,  float*  alphas,  float*  alphas_time, float* betas, int  delay_bracket)
     
     cdef double invert_spatially_regularized_double "wr::invert_spatially_regularized<double>"(long nt, long ny, long nx, long  ndat, vector[Milne[double]] &ME,  double*  m, double* obs, double* syn, double*  sig, int method, int nIter, double chi2_thres, double  mu, double iLam,  double*  alphas, double*  alphas_time, double* betas, int delay_bracket)
+
+# ********************************************************************************
+
+cdef extern from "wrapper_tools.hpp" namespace "wr":
+    cdef void StokesIO_dd "wr::SynManyStokesIO<double,double>"(vector[Milne[double]]& ME, const double* m, double** out, long ps, long ls, long ny, long nx, double mu)
+    cdef void StokesIO_df "wr::SynManyStokesIO<double,float>"(vector[Milne[double]]& ME, const double* m, float** out, long ps, long ls, long ny, long nx, double mu)
+    cdef void StokesIO_ff "wr::SynManyStokesIO<float,float>"(vector[Milne[float]]& ME, const float* m, float** out, long ps, long ls, long ny, long nx, float mu)
+    cdef void VJPIO_dd "wr::SynManyVJPIO<double,double>"(vector[Milne[double]]& ME, const double* m, const double** g, long ps, long ls, double* gout, long ny, long nx, double mu, int mode)
+    cdef void VJPIO_df "wr::SynManyVJPIO<double,float>"(vector[Milne[double]]& ME, const double* m, const float** g, long ps, long ls, double* gout, long ny, long nx, double mu, int mode)
+    cdef void VJPIO_ff "wr::SynManyVJPIO<float,float>"(vector[Milne[float]]& ME, const float* m, const float** g, long ps, long ls, float* gout, long ny, long nx, float mu, int mode)
 
 # ********************************************************************************
 
@@ -353,6 +364,27 @@ cdef class pyMilne:
         
         return Stokes
     
+    def stokes_io(self, ar[double,ndim=3] m, ptrs, long ps, long ls, int u_f32, double mu = 1.0):
+        """Stokes into 4 caller buffers (data pointers, e.g. torch .data_ptr()), element (p, w) at p*ps + w*ls."""
+        cdef size_t pp[4]
+        for ii in range(4): pp[ii] = <size_t>ptrs[ii]
+        if not u_f32:
+            StokesIO_dd(self.Me, <double*>m.data, <double**>pp, ps, ls, m.shape[0], m.shape[1], mu); return
+        if u_f32:
+            StokesIO_df(self.Me, <double*>m.data, <float**>pp, ps, ls, m.shape[0], m.shape[1], mu); return
+        raise TypeError("unsupported output dtype")
+
+    def vjp_io(self, ar[double,ndim=3] m, ptrs, long ps, long ls, int u_f32, double mu = 1.0, int mode = 1):
+        """(ny, nx, 9) gradient from 4 upstream-gradient buffers (pointer 0 = that Stokes has no gradient)."""
+        cdef size_t pp[4]
+        for ii in range(4): pp[ii] = <size_t>ptrs[ii]
+        cdef ar[double,ndim=3] gout = np_empty((m.shape[0], m.shape[1], 9), dtype='float64', order='c')
+        if not u_f32:
+            VJPIO_dd(self.Me, <double*>m.data, <const double**>pp, ps, ls, <double*>gout.data, m.shape[0], m.shape[1], mu, mode); return gout
+        if u_f32:
+            VJPIO_df(self.Me, <double*>m.data, <const float**>pp, ps, ls, <double*>gout.data, m.shape[0], m.shape[1], mu, mode); return gout
+        raise TypeError("unsupported gradient dtype")
+
     def synthesize_RF(self, ar[double,ndim=3] m, double mu = 1.0):
 
         cdef long nWav = self.Me[0].get_number_of_wavelength()
@@ -627,6 +659,23 @@ cdef class pyMilne_float:
         
         return Stokes
     
+    def stokes_io(self, ar[float,ndim=3] m, ptrs, long ps, long ls, int u_f32, float mu = 1.0):
+        """Stokes into 4 caller buffers (data pointers, e.g. torch .data_ptr()), element (p, w) at p*ps + w*ls."""
+        cdef size_t pp[4]
+        for ii in range(4): pp[ii] = <size_t>ptrs[ii]
+        if u_f32:
+            StokesIO_ff(self.Me, <float*>m.data, <float**>pp, ps, ls, m.shape[0], m.shape[1], mu); return
+        raise TypeError("unsupported output dtype")
+
+    def vjp_io(self, ar[float,ndim=3] m, ptrs, long ps, long ls, int u_f32, float mu = 1.0, int mode = 1):
+        """(ny, nx, 9) gradient from 4 upstream-gradient buffers (pointer 0 = that Stokes has no gradient)."""
+        cdef size_t pp[4]
+        for ii in range(4): pp[ii] = <size_t>ptrs[ii]
+        cdef ar[float,ndim=3] gout = np_empty((m.shape[0], m.shape[1], 9), dtype='float32', order='c')
+        if u_f32:
+            VJPIO_ff(self.Me, <float*>m.data, <const float**>pp, ps, ls, <float*>gout.data, m.shape[0], m.shape[1], mu, mode); return gout
+        raise TypeError("unsupported gradient dtype")
+
     def synthesize_RF(self, ar[float,ndim=3] m, float mu = 1.0):
 
         cdef long nWav = self.Me[0].get_number_of_wavelength()

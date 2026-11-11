@@ -247,5 +247,7 @@ namespace wr{
 
 }
 
+#include "vjp.hpp"
+
 #endif
 
