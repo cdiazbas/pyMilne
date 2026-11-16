@@ -164,6 +164,14 @@ def smoothModel(m, fwhm):
     for ii in range(npar):
         res[:,:,ii] = fftconvol2d(res[:,:,ii].squeeze(), psf)
 
+    # --- the azimuth is defined modulo pi: smooth Bt*(cos 2phi, sin 2phi), not phi itself,
+    #     or 179 and 1 degrees average to 90 --- #
+
+    bt = m[:,:,0] * np.sin(m[:,:,1])
+    qq = fftconvol2d(bt * np.cos(2*m[:,:,2]), psf)
+    uu = fftconvol2d(bt * np.sin(2*m[:,:,2]), psf)
+    res[:,:,2] = np.mod(0.5*np.arctan2(uu, qq), np.pi)
+
     return res
 
 # ***********************************************************************************
