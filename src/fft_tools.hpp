@@ -97,8 +97,8 @@ namespace mfft{
 
       // --- copy data --- //
       memcpy(padded, in.padded, npad*sizeof(double));
-      memcpy(ft,     in.ft,     nft*sizeof(double));
-      memcpy(otf,    in.otf,    nft*sizeof(double));
+      memcpy(ft,     in.ft,     nft*sizeof(std::complex<double>));
+      memcpy(otf,    in.otf,    nft*sizeof(std::complex<double>));
       
       return *this;
     }
